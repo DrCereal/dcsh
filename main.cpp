@@ -17,6 +17,8 @@ std::vector<std::string> tokens;
 // used for debugging
 extern char** environ;
 
+#define error(msg) std::cerr << msg << '\n'
+
 inline int 
 file_exists(const std::string& path)
 {
@@ -63,18 +65,17 @@ parse (int flags)
 void change_dir()
 {
 	if (tokens.size() != 2)
-		std::cerr << "cd: invalid argumentd\n";
+		error("cd: invalid arguments");
 	else
 	{
 		if (file_exists(tokens[1]))
 		{
 			if (chdir(tokens[1].c_str()))
-				std::cerr << "couldn't change directory\n";
+				error("cd: couldn't change directory");
 			return;
 		}
 		else
-			std::cerr << "cd: error changing directory to: " << tokens[1] << '\n';
-			// TODO: Report specific error
+			error("cd: '" << tokens[1] << "' does not exist");
 	}
 }
 
@@ -105,7 +106,7 @@ exec_program (const std::string& path)
 		return status; // on failure, return status
 	}
 	else // error
-		std::cerr << "failed to fork: " << errno << '\n';
+		error("failed to fork: " << errno);
 
 	return 0;
 }
@@ -149,14 +150,14 @@ run_command()
 
 					if (path[i] == 0)
 					{
-						std::cerr << "dsh: " << tokens[0] << " is not a valid command\n";
+						error("dsh: " << tokens[0] << " is not a valid command");
 						break;
 					}
 				}
 			}
 
 			if (old_i == i)
-				std::cerr << "dsh: " << tokens[0] << " is not a valid command\n";
+				error("dsh: " << tokens[0] << " is not a valid command");
 		}
 	}
 	
