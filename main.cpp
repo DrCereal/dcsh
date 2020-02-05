@@ -5,6 +5,8 @@
 
 #include <errno.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <termios.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -13,11 +15,39 @@
 std::string path = ".";
 
 std::vector<std::string> tokens;
+std::vector<std::string> buffer;
+
+int child_exit_status = 0;
 
 // used for debugging
 extern char** environ;
 
 #define error(msg) std::cerr << msg << '\n'
+
+#define exit() { \
+switch_canonical(1); \
+return 0; }
+
+inline void
+switch_canonical (int enabled)
+{
+	struct termios termios_p;
+
+	int status = tcgetattr(STDIN_FILENO, &termios_p);
+	if (status)
+		error("tcgetattr(): failed");
+	else
+	{
+		if (enabled)
+			termios_p.c_lflag |= (ICANON | ECHO);
+		else
+			termios_p.c_lflag &= ~ICANON;
+
+		status = tcsetattr(STDIN_FILENO, TCSANOW, &termios_p);
+		if (status)
+			error("tcsetattr(): failed");
+	}
+}
 
 inline int 
 file_exists(const std::string& path)
@@ -46,8 +76,11 @@ parse (int flags)
 			}
 			else
 			{
-				// if (strcmp(val, "?"))
-					// status of last program
+				if (strcmp(var, "?") == 0)
+				{
+					*token = std::to_string(child_exit_status);
+					return;
+				}
 			}
 		}
 
@@ -61,6 +94,32 @@ parse (int flags)
 		}
 	}
 } 
+
+void
+tokenize ()
+{
+	std::string& command = buffer.back();
+	std::string token;
+
+	char c;
+	int end = 0;
+	for (int i = 0; end != 1; i++)
+	{
+		c = command[i];
+		switch (c)
+		{
+			case 0: end = 1;
+			case ' ':
+				if (token != "")
+				{
+					tokens.push_back(token);
+					token = "";
+				}
+				break;
+			default: token.append(1, c); break;
+		}
+	} 
+}
 
 void change_dir()
 {
@@ -90,6 +149,11 @@ exec_program (const std::string& path)
 		int wstatus = 0;
 		wait(&wstatus);
 
+		if (WIFEXITED(wstatus))
+			child_exit_status = WEXITSTATUS(wstatus);
+		else
+			error("dsh: program did not exit properly");
+ 
 		return 0;
 	}
 	else if (child == 0) // child
@@ -164,35 +228,46 @@ run_command()
 	tokens.clear();
 }
 
-int main(int argc, char **argv)
+int 
+main(int argc, char **argv)
 {
-	std::string in;
+	switch_canonical(0);
+
+	std::string command;
+
+	printf("# ");
+	int c;
 	for (;;)
 	{
-		std::cout << "# ";
-		std::getline(std::cin, in);
-		
-		if (in == "exit")
-			return 0;
-		else
+		c = fgetc(stdin);
+
+		switch (c)
 		{
-			std::string token = "" ;
-			for (int i = 0; in[i]; i++)
-			{
-				if (in[i] == ' ')
-				{
-					tokens.push_back(token);
-					token = "";
-				}
+			// differentiate in the future
+			case 3:
+			case EOF: exit()
+			case 10:
+				if (command == "exit")
+					exit()
 				else
-					token += in[i];
-			}
-			tokens.push_back(token);
-			
-			parse(0);
-			
-			run_command();
+				{
+					buffer.push_back(command);
+					command = "";
+
+					tokenize();
+					parse(0);
+
+					run_command();
+				}
+				printf("# ");
+				break;
+			default:
+				printf("%i\n", c);
+				command.append(1, c);
+				break;
 		}
 	}
+	
+	switch_canonical(1);
 }
 
